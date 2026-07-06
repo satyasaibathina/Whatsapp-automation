@@ -1,0 +1,36 @@
+# ── Secrets (NEVER commit these) ──────────────────────────────────
+.env
+auth.json
+
+# ── WhatsApp Session Data (lives on VPS only) ─────────────────────
+.wwebjs_auth/
+.wwebjs_auth_backup/
+
+# ── Node.js ───────────────────────────────────────────────────────
+node_modules/
+package-lock.json
+
+# ── Python ───────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ── Chrome Profile (VPS auto-creates this) ───────────────────────
+.chrome_profile/
+
+# ── Runtime Output (generated at runtime) ────────────────────────
+output/
+*.png
+qr.png
+qr.txt
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
+pipeline_log.txt
+remote_revenue_cron.log
+
+# ── Windows ──────────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
