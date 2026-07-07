@@ -5,3 +5,4 @@ openpyxl
 python-dateutil
 playwright
 requests
+pandas
