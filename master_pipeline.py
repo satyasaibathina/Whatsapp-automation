@@ -449,28 +449,22 @@ def run_pipeline():
     # IC Staff
     print("\n👷 Processing IC Staff...")
     if files.get('staff'):
-        excel_committed, count_committed, excel_not_committed, count_not_committed = process_staff_file(files['staff'], OUTPUT_DIR)
-        img_committed = excel_to_image(excel_committed, os.path.join(OUTPUT_DIR, "Staff_Committed.png")) if excel_committed else None
-        img_not_committed = excel_to_image(excel_not_committed, os.path.join(OUTPUT_DIR, "Staff_Not_Committed.png")) if excel_not_committed else None
+        excel, count = process_staff_file(files['staff'], OUTPUT_DIR)
+        img = excel_to_image(excel, os.path.join(OUTPUT_DIR, "Staff.png")) if excel else None
     else:
-        count_committed, img_committed = 0, None
-        count_not_committed, img_not_committed = 0, None
+        count, img = 0, None
         print("   ⚠️  File not downloaded")
-    reports.append({"type": "IC Staff - Committed", "pendingCount": count_committed, "imagePath": img_committed or ""})
-    reports.append({"type": "IC Staff - Not Committed", "pendingCount": count_not_committed, "imagePath": img_not_committed or ""})
+    reports.append({"type": "IC Staff", "pendingCount": count, "imagePath": img or ""})
 
     # Fleet
     print("\n🚛 Processing Fleet...")
     if files.get('fleet'):
-        excel_committed, count_committed, excel_not_committed, count_not_committed = process_fleet_file(files['fleet'], OUTPUT_DIR)
-        img_committed = excel_to_image(excel_committed, os.path.join(OUTPUT_DIR, "Fleet_Committed.png")) if excel_committed else None
-        img_not_committed = excel_to_image(excel_not_committed, os.path.join(OUTPUT_DIR, "Fleet_Not_Committed.png")) if excel_not_committed else None
+        excel, count = process_fleet_file(files['fleet'], OUTPUT_DIR)
+        img = excel_to_image(excel, os.path.join(OUTPUT_DIR, "Fleet.png")) if excel else None
     else:
-        count_committed, img_committed = 0, None
-        count_not_committed, img_not_committed = 0, None
+        count, img = 0, None
         print("   ⚠️  File not downloaded")
-    reports.append({"type": "IC Fleet - Committed", "pendingCount": count_committed, "imagePath": img_committed or ""})
-    reports.append({"type": "IC Fleet - Not Committed", "pendingCount": count_not_committed, "imagePath": img_not_committed or ""})
+    reports.append({"type": "IC Fleet", "pendingCount": count, "imagePath": img or ""})
 
     # Site Rental
     print("\n🏢 Processing Site Rental...")

@@ -72,7 +72,15 @@ def save_and_style_fleet(pivot_df, output_file):
 def process_fleet_file(input_path, output_folder="output", allowed_statuses=None):
     print(f"📊 Loading IC Fleet: {input_path}")
     df = pd.read_excel(input_path, sheet_name=SHEET_NAME)
-    df = df.rename(columns={"OpsManager": "OM Name", "Client": "Client Name"})
+
+    # Rename columns to match expected schema
+    rename_map = {}
+    if "OpsManager" in df.columns:
+        rename_map["OpsManager"] = "OM Name"
+    if "Client" in df.columns:
+        rename_map["Client"] = "Client Name"
+    if rename_map:
+        df = df.rename(columns=rename_map)
 
     if allowed_statuses is None:
         from datetime import datetime
@@ -89,51 +97,27 @@ def process_fleet_file(input_path, output_folder="output", allowed_statuses=None
         (df["Site Status"].str.strip().str.lower().isin(allowed_lower)) &
         (df["Site Code"].notna())    & (df["Site Code"].astype(str).str.strip()    != "") &
         (df["OM Name"].notna())      & (df["OM Name"].astype(str).str.strip()      != "") &
-        (df["OM Name"].astype(str).str.strip().str.lower() != "dipayan chatterjee") &
+        (~df["OM Name"].astype(str).str.strip().str.lower().isin(["dipayan chatterjee", "avik debnath"])) &
         (df["Client Name"].notna())  & (df["Client Name"].astype(str).str.strip()  != "")
     ].copy()
 
-    # Split 1: Committed (committed, approved, confirmed if allowed)
-    comm_list = [s for s in ["committed", "approved", "confirmed"] if s in allowed_lower]
-    committed_df = base_filtered[
-        base_filtered["Site Status"].str.strip().str.lower().isin(comm_list)
-    ]
-    pivot_committed = (
-        committed_df[["OM Name", "Site Code", "Site Status", "Payout Status", "Client Name"]]
-        .drop_duplicates(subset=["OM Name", "Site Code"])
-        .sort_values(by=["OM Name", "Site Code"])
-        .reset_index(drop=True)
-    )
+    # Align with output schema by assigning Status values to Payout Status
+    base_filtered["Payout Status"] = base_filtered["Status"]
 
-    # Split 2: Not Committed (not committed)
-    not_committed_df = base_filtered[
-        base_filtered["Site Status"].str.strip().str.lower() == "not committed"
-    ]
-    pivot_not_committed = (
-        not_committed_df[["OM Name", "Site Code", "Site Status", "Payout Status", "Client Name"]]
+    pivot_df = (
+        base_filtered[["OM Name", "Site Code", "Site Status", "Payout Status", "Client Name"]]
         .drop_duplicates(subset=["OM Name", "Site Code"])
         .sort_values(by=["OM Name", "Site Code"])
         .reset_index(drop=True)
     )
 
     os.makedirs(output_folder, exist_ok=True)
-
-    # Process Committed
-    total_committed = len(pivot_committed)
-    file_committed = None
-    if total_committed > 0:
-        file_committed = os.path.join(output_folder, "IC_Fleet_Committed_Pending.xlsx")
-        save_and_style_fleet(pivot_committed, file_committed)
+    total_records = len(pivot_df)
+    output_file = None
+    if total_records > 0:
+        output_file = os.path.join(output_folder, "IC_Fleet_Pending.xlsx")
+        save_and_style_fleet(pivot_df, output_file)
     else:
-        print("   ✅ No IC Fleet Committed pending records.")
+        print("   ✅ No IC Fleet pending records.")
 
-    # Process Not Committed
-    total_not_committed = len(pivot_not_committed)
-    file_not_committed = None
-    if total_not_committed > 0:
-        file_not_committed = os.path.join(output_folder, "IC_Fleet_Not_Committed_Pending.xlsx")
-        save_and_style_fleet(pivot_not_committed, file_not_committed)
-    else:
-        print("   ✅ No IC Fleet Not Committed pending records.")
-
-    return file_committed, total_committed, file_not_committed, total_not_committed
+    return output_file, total_records

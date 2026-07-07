@@ -85,53 +85,27 @@ def process_staff_file(input_path, output_folder="output", allowed_statuses=None
 
     base_filtered = df[
         (df["Payout Status"].str.strip().str.lower() == "pay") &
+        (df["Site Status"].str.strip().str.lower().isin(allowed_lower)) &
         (df["Site Code"].notna())    & (df["Site Code"].astype(str).str.strip()    != "") &
         (df["OM Name"].notna())      & (df["OM Name"].astype(str).str.strip()      != "") &
-        (df["OM Name"].astype(str).str.strip().str.lower() != "dipayan chatterjee") &
+        (~df["OM Name"].astype(str).str.strip().str.lower().isin(["dipayan chatterjee", "avik debnath"])) &
         (df["Client Name"].notna())  & (df["Client Name"].astype(str).str.strip()  != "")
     ]
 
-    # Split 1: Committed (committed, approved, confirmed if allowed)
-    comm_list = [s for s in ["committed", "approved", "confirmed"] if s in allowed_lower]
-    committed_df = base_filtered[
-        base_filtered["Site Status"].str.strip().str.lower().isin(comm_list)
-    ]
-    pivot_committed = (
-        committed_df[["OM Name", "Site Code", "Site Status", "Payout Status", "Client Name"]]
-        .drop_duplicates(subset=["OM Name", "Site Code"])
-        .sort_values(by=["OM Name", "Site Code"])
-        .reset_index(drop=True)
-    )
-
-    # Split 2: Not Committed (not committed)
-    not_committed_df = base_filtered[
-        base_filtered["Site Status"].str.strip().str.lower() == "not committed"
-    ]
-    pivot_not_committed = (
-        not_committed_df[["OM Name", "Site Code", "Site Status", "Payout Status", "Client Name"]]
+    pivot_df = (
+        base_filtered[["OM Name", "Site Code", "Site Status", "Payout Status", "Client Name"]]
         .drop_duplicates(subset=["OM Name", "Site Code"])
         .sort_values(by=["OM Name", "Site Code"])
         .reset_index(drop=True)
     )
 
     os.makedirs(output_folder, exist_ok=True)
-
-    # Process Committed
-    total_committed = len(pivot_committed)
-    file_committed = None
-    if total_committed > 0:
-        file_committed = os.path.join(output_folder, "IC_Staff_Committed_Pending.xlsx")
-        save_and_style_staff(pivot_committed, file_committed)
+    total_records = len(pivot_df)
+    output_file = None
+    if total_records > 0:
+        output_file = os.path.join(output_folder, "IC_Staff_Pending.xlsx")
+        save_and_style_staff(pivot_df, output_file)
     else:
-        print("   ✅ No IC Staff Committed pending records.")
+        print("   ✅ No IC Staff pending records.")
 
-    # Process Not Committed
-    total_not_committed = len(pivot_not_committed)
-    file_not_committed = None
-    if total_not_committed > 0:
-        file_not_committed = os.path.join(output_folder, "IC_Staff_Not_Committed_Pending.xlsx")
-        save_and_style_staff(pivot_not_committed, file_not_committed)
-    else:
-        print("   ✅ No IC Staff Not Committed pending records.")
-
-    return file_committed, total_committed, file_not_committed, total_not_committed
+    return output_file, total_records
