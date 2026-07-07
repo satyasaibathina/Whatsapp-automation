@@ -72,6 +72,7 @@ def save_and_style_fleet(pivot_df, output_file):
 def process_fleet_file(input_path, output_folder="output", allowed_statuses=None):
     print(f"📊 Loading IC Fleet: {input_path}")
     df = pd.read_excel(input_path, sheet_name=SHEET_NAME)
+    df = df.rename(columns={"OpsManager": "OM Name", "Client": "Client Name"})
 
     if allowed_statuses is None:
         from datetime import datetime
@@ -84,12 +85,13 @@ def process_fleet_file(input_path, output_folder="output", allowed_statuses=None
     allowed_lower = [s.lower() for s in allowed_statuses]
 
     base_filtered = df[
-        (df["Payout Status"].str.strip().str.lower() == "pay") &
+        (df["Status"].str.strip().str.lower() == "pay") &
+        (df["Site Status"].str.strip().str.lower().isin(allowed_lower)) &
         (df["Site Code"].notna())    & (df["Site Code"].astype(str).str.strip()    != "") &
         (df["OM Name"].notna())      & (df["OM Name"].astype(str).str.strip()      != "") &
         (df["OM Name"].astype(str).str.strip().str.lower() != "dipayan chatterjee") &
         (df["Client Name"].notna())  & (df["Client Name"].astype(str).str.strip()  != "")
-    ]
+    ].copy()
 
     # Split 1: Committed (committed, approved, confirmed if allowed)
     comm_list = [s for s in ["committed", "approved", "confirmed"] if s in allowed_lower]
