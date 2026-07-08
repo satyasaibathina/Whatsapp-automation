@@ -27,15 +27,6 @@ d:\Whatsapp automation\
 ├── output/                     # Generated Excel files & screenshot PNGs
 └── .wwebjs_auth/               # WhatsApp session storage (do not delete)
 
-Remote Ubuntu Server (129.159.235.105):
-├── /home/ubuntu/revenue.py     # SharePoint downloader + MongoDB inserter
-├── /home/ubuntu/auth.json      # SharePoint cookie auth (31 cookies)
-├── /home/ubuntu/downloads/     # Downloaded Excel files per client
-│   ├── MLL/
-│   ├── WZ/
-│   ├── MLL_LMD/
-│   └── WZ_LMD/
-└── /home/ubuntu/revenue_cron.log  # Cron execution log
 ```
 
 ---
@@ -60,15 +51,6 @@ Remote Ubuntu Server (129.159.235.105):
 │    POST /send-flash   → Flash report images         │
 └─────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────┐
-│  REMOTE UBUNTU SERVER (Oracle Cloud, 129.159.235.105)│
-│                                                     │
-│  Cron Job (every 5 hrs) → revenue.py               │
-│    ↓  SharePoint REST API (auth.json cookies)       │
-│    ↓  Download 4 Excel reports                      │
-│    ↓  Parse with openpyxl                           │
-│    ↓  Insert to MongoDB (LogiWhiz_Trackking DB)     │
-└─────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -308,15 +290,7 @@ ssh -i C:\Users\Admin\Downloads\oracle-openssh.pem ubuntu@129.159.235.105 "cd /h
 | Session health check | Node.js, axios / http |
 | Email alerts | Python smtplib (Gmail SMTP) |
 
-### Remote Ubuntu Server (Oracle Cloud)
 
-| Component | Technology |
-|-----------|-----------|
-| SharePoint download | Python 3, `requests` (REST API + cookie auth) |
-| Excel parsing | openpyxl |
-| Database | MongoDB (`pymongo`) |
-| Python env | `venv` at `/home/ubuntu/venv/` |
-| Scheduling | Linux `cron` |
 
 ---
 
@@ -429,16 +403,7 @@ bash -ic 'echo $MONGODB_URL'  # should print the connection string
 
 ---
 
-## 📊 MongoDB Database Schema
 
-**Database:** `LogiWhiz_Trackking`
-
-| Collection | Source | Months Covered |
-|-----------|--------|---------------|
-| `Mll_revenue_Main` | MLL (main) | Jul 2025 → current |
-| `Mll_revenue_Main` | MLL_LMD (append) | Last 2 months |
-| `Wz_revenue_Main` | WZ (main) | Jul 2025 → current |
-| `Wz_revenue_Main` | WZ_LMD (append) | Last 2 months |
 
 Each document corresponds to one row in the SharePoint Excel sheet, tagged with `year` and `month` fields.
 
