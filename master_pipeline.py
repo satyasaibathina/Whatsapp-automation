@@ -32,7 +32,13 @@ def send_to_whatsapp_service(endpoint, data):
     if "--dry-run" in sys.argv:
         print("   [DRY RUN] Would send to WhatsApp:", json.dumps(data, indent=2))
         return True
-    service_url = os.environ.get("WA_SERVICE_URL", "http://localhost:3000").rstrip("/")
+    service_url = os.environ.get("WA_SERVICE_URL")
+    if not service_url or not service_url.strip():
+        if "GITHUB_ACTIONS" in os.environ:
+            print("   ⚠️  WA_SERVICE_URL is not set in GitHub Actions. Skipping WhatsApp transmission.")
+            return True
+        service_url = "http://localhost:3000"
+    service_url = service_url.rstrip("/")
     api_key = os.environ.get("WA_API_KEY")
     url = f"{service_url}{endpoint}"
     
@@ -497,6 +503,22 @@ def run_pipeline():
     else:
         tag_person = WA_TAG_PERSON
         no_sir = False
+
+    # Convert images to Base64 to support remote VPS transmission (since files are local on the runner)
+    import base64
+    for r in reports:
+        if r.get("pendingCount", 0) > 0 and r.get("imagePath"):
+            try:
+                if os.path.exists(r["imagePath"]):
+                    with open(r["imagePath"], "rb") as f:
+                        r["imageBase64"] = base64.b64encode(f.read()).decode("utf-8")
+                else:
+                    r["imageBase64"] = ""
+            except Exception as e:
+                print(f"⚠️  Failed to read/encode image {r['imagePath']}: {e}")
+                r["imageBase64"] = ""
+        else:
+            r["imageBase64"] = ""
 
     payload = {
         "monthName": month_name,

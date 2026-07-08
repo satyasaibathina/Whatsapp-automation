@@ -433,16 +433,31 @@ async def main():
         mll_expense_tags = get_env_tags("WA_TAGS_MLL_EXPENSE", [])
         wz_expense_tags  = get_env_tags("WA_TAGS_WZ_EXPENSE", [])
 
+        reports_list = [
+            { "file": "MLL_Vendor_combined.png", "entity": "MLL", "tags": mll_vendor_tags },
+            { "file": "WZ_Vendor_combined.png", "entity": "WZ", "tags": wz_vendor_tags },
+            { "file": "MLL_Expense_combined.png", "entity": "MLL (Expense)", "tags": mll_expense_tags },
+            { "file": "WZ_Expense_combined.png", "entity": "WZ (Expense)", "tags": wz_expense_tags }
+        ]
+
+        import base64
+        for r in reports_list:
+            filepath = os.path.join(SCREENSHOT_DIR, r["file"])
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, "rb") as f:
+                        r["fileBase64"] = base64.b64encode(f.read()).decode("utf-8")
+                except Exception as e:
+                    print(f"[WARN] Failed to read/encode file {filepath}: {e}")
+                    r["fileBase64"] = ""
+            else:
+                r["fileBase64"] = ""
+
         payload = {
             "monthName": PREV_MONTH_LABEL,
             "groupId": wa_group_id,
             "screenshotDir": "output",
-            "reports": [
-                { "file": "MLL_Vendor_combined.png", "entity": "MLL", "tags": mll_vendor_tags },
-                { "file": "WZ_Vendor_combined.png", "entity": "WZ", "tags": wz_vendor_tags },
-                { "file": "MLL_Expense_combined.png", "entity": "MLL (Expense)", "tags": mll_expense_tags },
-                { "file": "WZ_Expense_combined.png", "entity": "WZ (Expense)", "tags": wz_expense_tags }
-            ]
+            "reports": reports_list
         }
         
         try:
