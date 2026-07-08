@@ -1,437 +1,232 @@
-# 📊 LogiWhiz Automation Suite — README
+# 🤖 WhatsApp Payout & Flash Reporting Automation
 
-> Complete documentation for the end-to-end automation pipeline covering **SharePoint Revenue Reconciliation**, **Payout Report Delivery**, and **LogiWhiz Flash Report** delivery via WhatsApp.
+> Automated end-to-end pipeline for generating and delivering **Payout Reports** and **LogiWhiz Clearline Flash Reports** to WhatsApp groups daily via GitHub Actions + Oracle VPS.
+
+---
+
+## 🏗️ Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  GITHUB ACTIONS (Cloud Runner — runs daily on schedule)     │
+│                                                             │
+│  payout_pipeline.yml → master_pipeline.py --upto-step3     │
+│    Step 0: Selenium → Download Excel from Whizzard Portal   │
+│    Step 1: Process Excel files (HK, Staff, Fleet, Sites)   │
+│    Step 2: Excel → PNG images (openpyxl + Pillow)          │
+│    Step 3: Encode PNGs to Base64 → POST /send-report       │
+│                                                             │
+│  flash_pipeline.yml → master_pipeline.py --step4-only      │
+│    Step 4: Playwright → LogiWhiz screenshots               │
+│            Encode PNGs to Base64 → POST /send-flash        │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP POST (Base64 image payload)
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ORACLE VPS (Ubuntu 24.04 — 129.159.231.22:49301)          │
+│                                                             │
+│  whatsapp_service.js (PM2 — whatsapp-bot)                  │
+│    POST /send-report → Decodes Base64 → Sends HD image     │
+│    POST /send-flash  → Decodes Base64 → Sends HD image     │
+│    GET  /status      → Returns { status: "ready" }         │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 📁 Repository Structure
 
 ```
-d:\Whatsapp automation\
+repo root/
 ├── master_pipeline.py          # 🎯 Main orchestrator — runs Steps 0–4
 ├── step1_process_hk.py         # Step 1a — Housekeeping payout processor
 ├── step1b_process_staff.py     # Step 1b — IC Staff payout processor
 ├── step1c_process_site_rental.py # Step 1c — Site Rental processor
+├── step1d_process_fleet.py     # Step 1d — IC Fleet payout processor
 ├── step2_excel_to_image.py     # Step 2 — Convert Excel reports → PNG images
-├── step3_send_whatsapp.js      # Step 3 — (Legacy) WhatsApp sender
 ├── step4_flash.py              # Step 4 — LogiWhiz Clearline Flash Report
-├── step4_send_whatsapp.js      # Step 4 WhatsApp sender (standalone)
-├── whatsapp_service.js         # 🔌 Persistent HTTP WhatsApp service (port 3000)
-├── check_whatsapp_status.js    # Health check for WhatsApp session
-├── send_alert_email.py         # Email alert when WhatsApp session expires
-├── setup_whatsapp_session.js   # One-time QR scan setup
-├── send_now.py                 # Manual WhatsApp send trigger
-├── run_pipeline.bat            # ▶ Run master_pipeline.py (scheduled)
-├── run_whatsapp_service.bat    # ▶ Start WhatsApp persistent service
-├── check_session_daily.bat     # ▶ Daily health check (Task Scheduler)
-├── output/                     # Generated Excel files & screenshot PNGs
-└── .wwebjs_auth/               # WhatsApp session storage (do not delete)
-
+├── env_loader.py               # Loads .env file into os.environ
+├── requirements.txt            # Python dependencies for GitHub Actions runner
+├── send_alert_email.py         # Email alert utility
+└── .github/
+    └── workflows/
+        ├── payout_pipeline.yml # 📅 Runs Steps 1-3 daily at 7:00 AM IST
+        └── flash_pipeline.yml  # 📅 Runs Step 4 daily at 8:00 AM IST
 ```
 
 ---
 
-## 🏗️ System Architecture
+## 🔄 Pipeline 1 — Payout Report (Steps 1–3)
 
-```
-┌─────────────────────────────────────────────────────┐
-│  LOCAL WINDOWS PC (d:\Whatsapp automation\)         │
-│                                                     │
-│  Task Scheduler → run_pipeline.bat                  │
-│         ↓                                           │
-│  master_pipeline.py (Steps 0–4)                     │
-│    Step 0: Selenium → Whizzard Admin Portal         │
-│    Step 1: Process Excel files (HK, Staff, Sites)   │
-│    Step 2: Excel → PNG images                       │
-│    Step 3: POST → WhatsApp Service (localhost:3000) │
-│    Step 4: Playwright → LogiWhiz Flash screenshots  │
-│         ↓                                           │
-│  whatsapp_service.js (Node.js, port 3000)           │
-│    POST /send-report  → Payout images               │
-│    POST /send-flash   → Flash report images         │
-└─────────────────────────────────────────────────────┘
+**Schedule:** Daily at **7:00 AM IST** (`30 1 * * *` UTC)  
+**Workflow file:** `.github/workflows/payout_pipeline.yml`  
+**Command:** `python master_pipeline.py --upto-step3`
 
-```
+### What it does:
 
----
+| Step | Script | Action |
+|------|--------|--------|
+| Step 0 | `download_all()` in `master_pipeline.py` | Selenium logs into Whizzard Admin Portal and downloads Excel files for IC Staff, IC Fleet, Housekeeping, and Site Rental |
+| Step 1 | `step1_process_hk.py`, `step1b_process_staff.py`, etc. | Filters and styles each Excel file, outputs a clean `_Pending.xlsx` |
+| Step 2 | `step2_excel_to_image.py` | Converts each pending Excel to a PNG image |
+| Step 3 | `POST /send-report` → VPS | Encodes images to Base64 and sends them to the Oracle VPS which dispatches them to the WhatsApp group |
 
-## 🔄 Pipeline A — Payout Report Pipeline (master_pipeline.py)
+### Reports Generated:
+| Report | Pending Filter | Exclusions |
+|--------|---------------|------------|
+| Housekeeping | `Status=Pay` AND `RM Status=Pending` | None |
+| IC Staff | `Payment Status=Pending` | Dipayan Chatterjee, Avik Debnath |
+| IC Fleet | `Status=Pay` | Dipayan Chatterjee, Avik Debnath |
+| Site Rental | Pending records | Skipped before 5th of month |
 
-Runs automatically via Windows Task Scheduler on the **5th of every month** (or manually any time). Skips Steps 0–3 during the grace period (1st–4th) to allow data to be finalized.
-
-### Step 0 — Download from Whizzard Admin Portal
-
-**Script:** `master_pipeline.py → download_all()`  
-**Tool:** Selenium + ChromeDriver (headless)  
-**Portal:** `https://adminpanel.whizzard.in`
-
-Downloads 5 Excel files for the previous month:
-
-| File | Report | Whizzard Section |
-|------|--------|-----------------|
-| `Staff_*.xlsx` | IC Staff Monthly Payments | Payouts → Staff |
-| `Fleet_*.xlsx` | IC Fleet Final Payout | Payouts → Fleet |
-| `HK_*.xlsx` | House Keeping Payout | Payouts → Housekeeping |
-| `ActiveSites_*.xlsx` | Active/Disabled Sites | Sites → Default Tab |
-| `SiteRental_*.xlsx` | Site Rental Payout | Sites → Rentals Tab |
-
-> Files are saved to `output/` directory. The `_temp/` subdirectory is used as Chrome's download target and cleaned before each run.
+> ⚡ Only categories with `pendingCount > 0` generate an image and a WhatsApp message.
 
 ---
 
-### Step 1 — Process Excel Reports
+## 🔄 Pipeline 2 — Flash Report (Step 4)
 
-Three sub-scripts filter and style the downloaded Excel files:
+**Schedule:** Daily at **8:00 AM IST** (`30 2 * * *` UTC)  
+**Workflow file:** `.github/workflows/flash_pipeline.yml`  
+**Command:** `python master_pipeline.py --step4-only`
 
-**`step1_process_hk.py`** — Housekeeping  
-- Sheet: `System Format`  
-- Filter: `Status = Pay` AND `RM Status = Pending`  
-- Output: `output/HK_Pending.xlsx` (merged OM Name cells, color-coded rows)
+### What it does:
+1. Playwright logs into `https://logiwhizdevelopment.com/actual-cost`
+2. Filters data to previous month, takes table screenshots for 4 combinations:
 
-**`step1b_process_staff.py`** — IC Staff  
-- Filter: `Payment Status = Pending`  
-- Output: `output/Staff_Pending.xlsx`
-
-**`step1c_process_site_rental.py`** — Site Rental  
-- Joins `SiteRental` + `ActiveSites` data  
-- Filter: pending rental records  
-- Output: `output/SiteRental_Pending.xlsx`
-
-> If a report has **0 pending records**, no image is generated and no WhatsApp message is sent for that category.
-
----
-
-### Step 2 — Excel → PNG Image
-
-**Script:** `step2_excel_to_image.py`  
-Converts each styled `_Pending.xlsx` into a PNG image using `openpyxl` + `Pillow`. The image is saved to `output/` (e.g., `HK.png`, `Staff.png`, `SiteRental.png`).
-
----
-
-### Step 3 — Send via WhatsApp
-
-**Script:** `whatsapp_service.js` (endpoint: `POST /send-report`)  
-**Group:** LogiWhiz - Central + FinTech + Ops  
-**Tag Person:** `919014054696`
-
-For each report with `pendingCount > 0`, sends a caption + PNG image to the WhatsApp group with a tagged mention.
-
-Sample caption:
-```
-Hi @[contact] sir,
-Kindly find the payout status of Housekeeping for the month of May 2026
-```
-
----
-
-### Step 4 — LogiWhiz Clearline Flash Report
-
-**Script:** `step4_flash.py`  
-**Tool:** Playwright (async, headless Chromium)  
-**Portal:** `https://logiwhizdevelopment.com/actual-cost`
-
-Captures **8 screenshots** (4 combined images) across 4 filter combinations:
-
-| Run | Entity | Payment Category | Output File |
-|-----|--------|-----------------|-------------|
+| Run | Entity | Category | Output File |
+|-----|--------|----------|-------------|
 | 1 | MLL | Vendor | `MLL_Vendor_combined.png` |
 | 2 | WZ | Vendor | `WZ_Vendor_combined.png` |
 | 3 | MLL | Expense | `MLL_Expense_combined.png` |
 | 4 | WZ | Expense | `WZ_Expense_combined.png` |
 
-Each combined image = Table 1 (Pending by Status) stacked on Table 2 (Pending by Category).
-
-**Sends via:** `POST /send-flash` → `whatsapp_service.js`
-
-**Tags per entity:**
-- MLL: `@919899528526 @919833989902 @917763066066 @919820331505`
-- WZ: `@919899528526 @918892107032 @919833989902`
+3. Combines Table 1 (Pending by Status) + Table 2 (Pending by Category) into one stacked image
+4. Encodes images to Base64 and sends to the Oracle VPS via `POST /send-flash`
 
 ---
 
-## 🔄 Pipeline B — Revenue Reconciliation (Remote Ubuntu Server)
+## 🖥️ Oracle VPS — WhatsApp Service
 
-Runs automatically via **cron job every 5 hours** on the Oracle Cloud Ubuntu server.
+**IP:** `129.159.231.22`  
+**Port:** `49301`  
+**Service:** `whatsapp_service.js` managed by PM2 as `whatsapp-bot`  
+**Status URL:** `http://129.159.231.22:49301/status`
 
-### Cron Schedule
-
-```bash
-# Runs at: 00:00, 05:00, 10:00, 15:00, 20:00 UTC daily
-0 */5 * * * cd /home/ubuntu && venv/bin/python -u revenue.py >> /home/ubuntu/revenue_cron.log 2>&1
-```
-
-### How It Works
-
-**Script:** `/home/ubuntu/revenue.py`
-
-**Step 1 — Download from SharePoint**
-
-Uses SharePoint REST API with cookies from `auth.json` (31 session cookies) to download 4 Excel reports directly (no browser needed — pure HTTP):
-
-| Report Key | SharePoint File GUID | Download Path |
-|-----------|---------------------|---------------|
-| MLL | `95713CE3-8442-4970-AC70-CACD3E18311F` | `downloads/MLL/MLL_Downloaded.xlsx` |
-| WZ | `e778d689-0c93-48ce-b066-42bdd1cf4a37` | `downloads/WZ/WZ_Downloaded.xlsx` |
-| MLL_LMD | `2BB846F7-A277-4B85-8256-8D2004A732FB` | `downloads/MLL_LMD/MLL_LMD_Downloaded.xlsx` |
-| WZ_LMD | `60EDD568-0A39-41FD-AD08-879E420BD50A` | `downloads/WZ_LMD/WZ_LMD_Downloaded.xlsx` |
-
-**Step 2 — Parse & Insert to MongoDB**
-
-- Parses each downloaded Excel using `openpyxl`
-- Matches month names to sheet tabs (e.g., `"july"` → `"July-25"`)
-- Auto-adds **last month** to the process list on each run
-- Inserts records into MongoDB `LogiWhiz_Trackking` database:
-
-| Report | Collection | Mode |
-|--------|-----------|------|
-| MLL | `Mll_revenue_Main` | Clear & re-insert |
-| WZ | `Wz_revenue_Main` | Clear & re-insert |
-| MLL_LMD | `Mll_revenue_Main` | **Append only** |
-| WZ_LMD | `Wz_revenue_Main` | **Append only** |
-
-**Month Configuration:**
-
-```python
-# MLL / WZ — Full year (July 2025 → current month)
-months = ["july", "August", "september", "October", "november",
-          "december", "january", "Feburary", "March", "April", "May"]
-
-# MLL_LMD / WZ_LMD — Last 2 months only
-months = ["April", "May"]
-```
-
----
-
-## 🔌 WhatsApp Service
-
-**Script:** `whatsapp_service.js`  
-**Port:** `3000`  
-**Session Storage:** `.wwebjs_auth/` (persists across restarts)
-
-### Endpoints
+### Endpoints:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/status` | Returns `{ status: "ready" }` when connected |
-| `POST` | `/send-report` | Sends payout report images (Steps 1–3) |
-| `POST` | `/send-flash` | Sends LogiWhiz flash screenshots (Step 4) |
+| `GET` | `/status` | Returns `{ status: "ready" }` when WhatsApp connected |
+| `POST` | `/send-report` | Receives Base64 payout images → sends to WhatsApp group |
+| `POST` | `/send-flash` | Receives Base64 flash screenshots → sends to WhatsApp group |
 
-### Starting the Service
-
-```bat
-:: Option 1 — Run manually (auto-restarts on crash)
-run_whatsapp_service.bat
-
-:: Option 2 — Run directly
-node whatsapp_service.js
+### How to Push Code to VPS:
+```powershell
+# From local Windows PowerShell — upload updated whatsapp_service.js
+scp -i "C:\Users\Admin\Downloads\you\oracle.pem" "d:\whatsapp-baileys\Whatsapp automation\vps_deploy\whatsapp_service.js" ubuntu@129.159.231.22:~/whatsapp-service/
 ```
 
-### Health Check
+### How to Restart the Service on VPS:
+```bash
+# SSH into VPS
+ssh -i "C:\Users\Admin\Downloads\you\oracle.pem" ubuntu@129.159.231.22
 
-```bat
-node check_whatsapp_status.js
+# Clean restart (required to clear PM2 memory cache)
+cd ~/whatsapp-service
+pm2 delete whatsapp-bot
+pm2 start whatsapp_service.js --name "whatsapp-bot"
+pm2 logs whatsapp-bot --lines 20
 ```
 
-Returns `ready` or `offline`. If offline, triggers an **email alert** to `satyasaibathina@gmail.com` automatically.
+> ⚠️ Always use `pm2 delete` + `pm2 start`. Never use `pm2 restart` — it keeps old environment variables cached in memory.
 
 ---
 
-## 🚀 How to Run
+## 🔑 GitHub Secrets Configuration
 
-### Run Full Pipeline (Steps 0–4)
+Go to **GitHub → Settings → Secrets and Variables → Actions** and set:
 
-```bat
-cd "d:\Whatsapp automation"
-run_pipeline.bat
-```
+| Secret | Description |
+|--------|-------------|
+| `WA_SERVICE_URL` | `http://129.159.231.22:49301` |
+| `WA_API_KEY` | `WHIZZARD_SECRET_API_KEY_2026` |
+| `WA_GROUP_ID` | WhatsApp group ID (e.g. `120363424704050063@g.us`) |
+| `WA_TAG_PERSON` | Phone to tag in payout reports (e.g. `919014054696`) |
+| `WA_TAG_PERSON_ALT` | Alternate tag phone (days 2–5 of month) |
+| `WA_TAGS_MLL_VENDOR` | Comma-separated phones for MLL Vendor flash |
+| `WA_TAGS_WZ_VENDOR` | Comma-separated phones for WZ Vendor flash |
+| `WA_TAGS_MLL_EXPENSE` | Comma-separated phones for MLL Expense flash |
+| `WA_TAGS_WZ_EXPENSE` | Comma-separated phones for WZ Expense flash |
+| `WHIZZARD_MOBILE` | Whizzard admin portal login mobile |
+| `WHIZZARD_PASSWORD` | Whizzard admin portal login password |
+| `LOGIWHIZ_USERNAME` | LogiWhiz portal login username |
+| `LOGIWHIZ_PASSWORD` | LogiWhiz portal login password |
 
-Or directly:
-```bat
-"C:\Users\Admin\AppData\Local\Programs\Python\Python314\python.exe" master_pipeline.py
-```
+---
 
-### Run Step 4 Only (LogiWhiz Flash)
+## ▶️ How to Run Manually
 
-```bat
-"C:\Users\Admin\AppData\Local\Programs\Python\Python314\python.exe" master_pipeline.py --step4-only
-```
+### Run from GitHub Actions UI (Cloud):
+1. Go to your repository → **Actions** tab
+2. Select the workflow (**Payout Pipeline** or **Flash Report**)
+3. Click **Run workflow** → **Run workflow** button
 
-### Dry Run (No WhatsApp send)
+### Run Locally:
+```bash
+# Full pipeline (Steps 0–3 + Step 4)
+python master_pipeline.py
 
-```bat
-"C:\Users\Admin\AppData\Local\Programs\Python\Python314\python.exe" master_pipeline.py --dry-run
-```
+# Payout only (Steps 0–3)
+python master_pipeline.py --upto-step3
 
-### Run Up to Step 3 Only (Skip Step 4)
+# Flash report only (Step 4)
+python master_pipeline.py --step4-only
 
-```bat
-"C:\Users\Admin\AppData\Local\Programs\Python\Python314\python.exe" master_pipeline.py --upto-step3
-```
-
-### Run Revenue Script on Remote Server
-
-```bat
-ssh -i C:\Users\Admin\Downloads\oracle-openssh.pem ubuntu@129.159.235.105 "cd /home/ubuntu && venv/bin/python -u revenue.py"
+# Dry run (skips WhatsApp send — for testing)
+python master_pipeline.py --dry-run
 ```
 
 ---
 
-## 🖥️ Technology Stack
+## 🔧 Troubleshooting
 
-### Local PC (Windows)
+### ❌ HTTP Error 400: Bad Request on `/send-flash`
+**Cause:** `WA_GROUP_ID` is missing in the GitHub Actions environment.  
+**Fix:** Ensure `WA_GROUP_ID: ${{ secrets.WA_GROUP_ID }}` is in the `env:` block of `flash_pipeline.yml`.
 
-| Component | Technology |
-|-----------|-----------|
-| Payout download | Python 3.14, Selenium, ChromeDriver, webdriver-manager |
+### ❌ VPS returns old behavior after code upload
+**Cause:** PM2 has the old code cached in memory.  
+**Fix:** Run `pm2 delete whatsapp-bot` then `pm2 start whatsapp_service.js --name "whatsapp-bot"`.
+
+### ❌ Images blurry in WhatsApp
+**Cause:** Media sent without HD flag.  
+**Fix:** Ensure `{ sendMediaAsHd: true }` is set in all `client.sendMessage()` calls in `whatsapp_service.js`.
+
+### ❌ WhatsApp session expired on VPS
+**Symptoms:** `/status` endpoint returns `{ status: "initializing" }` and never becomes ready.  
+**Fix:** SSH into VPS, run `pm2 logs whatsapp-bot` and look for a QR code URL. Open it and scan with WhatsApp.
+
+### ❌ GitHub Actions fails on Ubuntu 24.04 with `apt-get` errors
+**Cause:** Old `apt-get` packages like `libgconf-2-4` no longer exist on Ubuntu 24.04.  
+**Fix:** Remove manual `apt-get` installs from YAML. Use `playwright install-deps` instead.
+
+---
+
+## 🖥️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Report download | Python, Selenium, ChromeDriver |
 | Excel processing | pandas, openpyxl |
-| Image generation | openpyxl, Pillow |
-| Flash screenshots | Python 3.14, Playwright (async, Chromium) |
-| WhatsApp service | Node.js, whatsapp-web.js, LocalAuth |
-| Session health check | Node.js, axios / http |
-| Email alerts | Python smtplib (Gmail SMTP) |
-
-
+| Image generation | Pillow (PIL) |
+| Flash screenshots | Python, Playwright (async Chromium) |
+| WhatsApp service | Node.js, whatsapp-web.js, PM2 |
+| CI/CD | GitHub Actions |
+| Hosting | Oracle Cloud Free Tier (Ubuntu 24.04) |
 
 ---
 
-## ⚙️ Configuration & Credentials
-
-### Local PC (master_pipeline.py)
-
-```python
-CHROME_PATH       = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-BASE_PROFILE_PATH = r"C:\Users\Admin\AppData\Local\Google\Chrome\User Data"
-LOGIN_URL         = "https://adminpanel.whizzard.in/#/login"
-MOBILE_NUMBER     = "6281111894"
-PASSWORD          = "Mahesh@2026"
-WA_GROUP_ID       = "919014054696-1587130182@g.us"
-```
-
-### Remote Server (revenue.py — environment variables)
-
-Set in `~/.bashrc` on the Ubuntu server:
-
-```bash
-export MONGODB_URL="mongodb+srv://..."
-export SHAREPOINT_USER="..."
-export SHAREPOINT_PASS="..."
-```
-
-> **auth.json** stores the SharePoint session cookies. It must be re-generated by logging in via Playwright whenever the session expires (typically every 30–90 days).
-
----
-
-## 📅 Scheduled Tasks (Windows Task Scheduler)
-
-| Task | Script | Schedule |
-|------|--------|----------|
-| Run Pipeline | `run_pipeline.bat` | Monthly — 5th of each month, 9:00 AM |
-| Check WA Session | `check_session_daily.bat` | Daily — 9:00 AM |
-
-### Cron Job (Ubuntu Server)
-
-```
-0 */5 * * * cd /home/ubuntu && venv/bin/python -u revenue.py >> revenue_cron.log 2>&1
-```
-
----
-
-## 🔧 Maintenance & Troubleshooting
-
-### WhatsApp Session Expired
-
-**Symptoms:** `check_whatsapp_status.js` returns `offline`; email alert received.
-
-**Fix:**
-```bash
-# On local PC — stop and restart the service; scan QR code
-node setup_whatsapp_session.js
-# OR start whatsapp_service.js and watch the console for QR code
-node whatsapp_service.js
-```
-A `qr.png` is saved in the folder for easy scanning.
-
----
-
-### SharePoint auth.json Expired
-
-**Symptoms:** `revenue.py` logs `403 Forbidden` or `401 Unauthorized`.
-
-**Fix:**
-1. Run the Playwright login script locally to generate a fresh `auth.json`
-2. Copy it to the server:
-```bat
-scp -i C:\Users\Admin\Downloads\oracle-openssh.pem auth.json ubuntu@129.159.235.105:/home/ubuntu/auth.json
-```
-
----
-
-### LogiWhiz Flash Report Failing (XPath errors)
-
-**Symptoms:** `step4_flash.py` times out clicking a tab or filter.
-
-**Diagnosis:** The LogiWhiz UI may have changed. Check the stable selectors currently used:
-
-| Element | Selector |
-|---------|----------|
-| Pending Cost tab | `button[role='tab'][id$='trigger-pending-cost']` |
-| Date picker | `button[aria-label='Service month']` |
-| Entity dropdown | `#actual-filter-entity` |
-| Payment Category | `#actual-filter-paymentCategory` |
-
-**Fix:** Open `step4_flash.py` and update selectors using browser DevTools inspection on `https://logiwhizdevelopment.com/actual-cost`.
-
----
-
-### Check Remote Revenue Logs
-
-```bat
-:: Copy latest log locally
-scp -i C:\Users\Admin\Downloads\oracle-openssh.pem ubuntu@129.159.235.105:/home/ubuntu/revenue_cron.log ./remote_revenue_cron.log
-```
-
----
-
-### MongoDB Not Connecting (revenue.py)
-
-**Symptoms:** `ConnectionFailure` in cron log.
-
-**Fix:** Ensure `MONGODB_URL` is correctly exported in `~/.bashrc`:
-```bash
-bash -ic 'echo $MONGODB_URL'  # should print the connection string
-```
-
----
-
-
-
-Each document corresponds to one row in the SharePoint Excel sheet, tagged with `year` and `month` fields.
-
----
-
-## 📋 Log Files
-
-| Log | Location | Purpose |
-|-----|----------|---------|
-| Pipeline log | `d:\Whatsapp automation\pipeline_log.txt` | Run timestamps from `run_pipeline.bat` |
-| Session check log | `d:\Whatsapp automation\session_check_log.txt` | Daily WA health check results |
-| Revenue cron log | `/home/ubuntu/revenue_cron.log` (remote) | Full SharePoint download + MongoDB insert output |
-
----
-
-## 🔑 Server Access
-
-| Resource | Details |
-|----------|---------|
-| Remote Server IP | `129.159.235.105` |
-| SSH User | `ubuntu` |
-| SSH Key | `C:\Users\Admin\Downloads\oracle-openssh.pem` |
-| Python venv | `/home/ubuntu/venv/` |
-| SSH Command | `ssh -i C:\Users\Admin\Downloads\oracle-openssh.pem ubuntu@129.159.235.105` |
-
----
-
-## 👤 Author & Contact
+## 👤 Author
 
 **Maintained by:** Bathina Satya Sai  
 **Alert email:** satyasaibathina@gmail.com  
@@ -439,4 +234,4 @@ Each document corresponds to one row in the SharePoint Excel sheet, tagged with 
 
 ---
 
-*Last updated: June 2026*
+*Last updated: July 2026*
