@@ -22,7 +22,7 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install selenium webdriver-manager Pillow openpyxl python-dateutil playwright
+          pip install -r requirements.txt
 
       - name: Set up Playwright Browsers
         run: |
