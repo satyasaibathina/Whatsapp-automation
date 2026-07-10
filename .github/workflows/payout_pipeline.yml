@@ -52,4 +52,4 @@ jobs:
           WA_TAGS_MLL_EXPENSE: ${{ secrets.WA_TAGS_MLL_EXPENSE }}
           WA_TAGS_WZ_EXPENSE: ${{ secrets.WA_TAGS_WZ_EXPENSE }}
         run: |
-          python master_pipeline.py
+          python master_pipeline.py --upto-step3
